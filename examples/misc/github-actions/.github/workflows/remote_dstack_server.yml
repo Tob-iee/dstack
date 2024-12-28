@@ -1,0 +1,54 @@
+name: Run dstack Task # Name of the GitHub Actions workflow
+
+on: [ push ] # Trigger the workflow on every push to the repository
+
+jobs:
+  run-ai-workload:
+    name: dstack-task  # Name of the job in the workflow
+    runs-on: ubuntu-latest  # The type of machine to run the job on
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v3 # Use the checkout action to fetch the repository files
+
+      - name: Configure runner's SSH to connect to your server
+        run: |
+          # Create an empty SSH private key file with secure permissions
+          install -m 600 -D /dev/null ~/.ssh/github-actions
+
+          # Print the GitHub repository name (useful for debugging/logging purposes)
+          echo ${{ github.repository }}
+
+          # Add the SSH private key from GitHub secrets to the file
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/github-actions
+
+          # Configure SSH settings for the connection to the remote server
+          cat >> ~/.ssh/config <<END
+          Host github-actions
+            HostName ${{ secrets.SSH_HOST }} # Hostname of the server (set as a GitHub secret)
+            User ${{ secrets.SSH_USER }} # Username for the SSH connection (set as a GitHub secret)
+            IdentityFile ~/.ssh/github-actions # Path to the private key for authentication
+            Port 22 # SSH port (default is 22)
+            StrictHostKeyChecking no # Disable host key checking for simplicity
+          END
+
+
+      - name: Run the AI task on your remote Dstack server
+        run: |
+            # Transfer the content of the local task file to the remote server
+            cat examples/fine-tuning/axolotl/.dstack.yaml | ssh github-actions '
+            # Write the contents to a specific location on the remote server
+            cat > ~/task.dstack.yaml && 
+
+            # Set necessary environment variables on the remote server
+            export HF_TOKEN="${{ secrets.HF_TOKEN }}" && # Hugging Face token
+            export WANDB_API_KEY="${{ secrets.WANDB_API_KEY }}" && # Weights and Biases API key
+
+            # Activate the Python virtual environment on the remote server
+            source dstack-env/bin/activate &&
+
+            # Run the dstack command with the task file and skip repository checks
+            dstack apply -f ~/task.dstack.yaml --no-repo --yes &&
+
+            # Clean up by removing the temporary task file
+            rm ~/task.dstack.yaml'
